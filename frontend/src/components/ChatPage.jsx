@@ -72,16 +72,24 @@ function ChatPage({ token, onLogout }) {
   };
 
   const handleCreateChat = async () => {
+    if (isComposingNewChat) {
+      console.log('⚠️ [handleCreateChat] Chat creation already in progress, ignoring duplicate request');
+      return;
+    }
+    
     console.log('🚀 [handleCreateChat] Starting new chat creation');
     setIsComposingNewChat(true);
     setSelectedChatId(null);
     setMessages([]);
     
     try {
-      // Create empty chat first
+      // Create empty chat without any message
       const title = 'New Chat';
       console.log('🚀 [handleCreateChat] Creating chat with title:', title);
-      const { chat } = await createChatWithFirstMessage(title, '', token);
+      console.log('🚀 [handleCreateChat] Using token:', token ? 'present' : 'missing');
+      const response = await createChat(title, token);
+      console.log('🔍 [handleCreateChat] Full response:', response);
+      const chat = response.chat || response; // Handle different response formats
       console.log('✅ [handleCreateChat] Chat created:', chat.id);
       setChats(prev => [chat, ...prev]);
       setSelectedChatId(chat.id);
@@ -91,6 +99,7 @@ function ChatPage({ token, onLogout }) {
       console.log('✅ [handleCreateChat] Chat created, waiting for user message');
     } catch (e) {
       console.error('❌ [handleCreateChat] Error creating chat:', e);
+      console.error('❌ [handleCreateChat] Error details:', e.response?.data);
       setIsComposingNewChat(false);
     }
   };
@@ -103,10 +112,11 @@ function ChatPage({ token, onLogout }) {
   // Simplified message sending logic
   const handleSendMessage = async (content, file) => {
     if (isSending) {
-      console.log('Message already being sent, ignoring duplicate request');
+      console.log('⚠️ [handleSendMessage] Message already being sent, ignoring duplicate request');
       return;
     }
     
+    console.log('🚀 [handleSendMessage] Starting message send:', content);
     setIsSending(true);
     
     if (!selectedChatId) {

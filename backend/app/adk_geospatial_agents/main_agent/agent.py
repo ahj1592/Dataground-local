@@ -52,6 +52,15 @@ async def process_user_message(message: str, user_id: int, callback_context: Cal
     
     print(f"🚀 [Main Agent] Processing message from user {user_id}: '{message[:50]}...'")
     
+    # 새 채팅인지 확인하고 상태 초기화
+    is_new_chat = callback_context.state.get("is_new_chat", False)
+    if is_new_chat:
+        print(f"🔄 [Main Agent] New chat detected, resetting user state")
+        user_state["status"] = "idle"
+        user_state["analysis_type"] = None
+        user_state["collected_params"] = {}
+        user_state["conversation_context"] = []
+    
     # 대화 컨텍스트에 사용자 메시지 추가
     if "conversation_context" not in user_state:
         user_state["conversation_context"] = []
@@ -157,11 +166,23 @@ async def handle_new_request(message: str, user_id: int, user_state: Dict[str, A
             # 모든 매개변수가 수집됨 - 분석 실행
             return await execute_analysis(analysis_type, param_result["params"], user_id, user_state, callback_context)
     else:
-        # 일반 대화
-        return {
-            "message": "안녕하세요! DataGround 지리공간 분석 시스템입니다. 어떤 분석을 도와드릴까요?\n\n지원하는 분석:\n- 해수면 상승 위험 분석\n- 도시 지역 분석\n- 인프라 노출 분석\n- 토픽 모델링 분석",
-            "status": "general_chat"
-        }
+        # 일반 대화 - 새로운 채팅일 때만 welcome message 표시
+        is_new_chat = callback_context.state.get("is_new_chat", False)
+        print(f"🔍 [Main Agent] is_new_chat: {is_new_chat}")
+        
+        if is_new_chat:
+            print(f"🔍 [Main Agent] Showing welcome message for new chat")
+            return {
+                "message": "안녕하세요! DataGround 지리공간 분석 시스템입니다. 어떤 분석을 도와드릴까요?\n\n지원하는 분석:\n- 해수면 상승 위험 분석\n- 도시 지역 분석\n- 인프라 노출 분석\n- 토픽 모델링 분석",
+                "status": "general_chat"
+            }
+        else:
+            print(f"🔍 [Main Agent] Showing generic response for existing chat")
+            # 기존 채팅에서는 간단한 응답
+            return {
+                "message": "죄송합니다. 분석 의도를 파악하지 못했습니다. 구체적인 분석을 요청해주세요.",
+                "status": "general_chat"
+            }
 
 async def handle_parameter_collection(message: str, user_id: int, user_state: Dict[str, Any], callback_context: CallbackContext) -> Dict[str, Any]:
     """매개변수 수집 중 처리"""

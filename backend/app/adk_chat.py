@@ -95,8 +95,29 @@ def create_adk_context(user_id: int, chat_id: int):
 
 async def send_message(message: str, user_id: int, db: Session, chat_id: int = None) -> Dict[str, Any]:
     """ADK 에이전트를 사용하여 메시지 처리"""
+    import time
+    request_id = f"{int(time.time() * 1000)}_{user_id}_{message[:10]}"
+    print(f"🔍 [ADK_CHAT] {request_id} - Starting send_message function")
+    print(f"🔍 [ADK_CHAT] {request_id} - Message: {message[:20]}, User: {user_id}, Chat: {chat_id}")
+    
     try:
         print(f"🚀 [ADK Chat] Processing message from user {user_id}: '{message[:50]}...'")
+        
+        # 중복 요청 방지를 위한 간단한 체크
+        import hashlib
+        import time
+        request_hash = hashlib.md5(f"{user_id}_{chat_id}_{message}_{int(time.time())}".encode()).hexdigest()
+        print(f"🔍 [ADK_CHAT] {request_id} - Request hash: {request_hash}")
+        print(f"🔍 [ADK_CHAT] {request_id} - Current processing requests: {getattr(send_message, '_processing_requests', set())}")
+        
+        if hasattr(send_message, '_processing_requests'):
+            if request_hash in send_message._processing_requests:
+                print(f"⚠️ [ADK Chat] Duplicate request detected, ignoring: {request_hash}")
+                return {"message": "요청이 이미 처리 중입니다.", "status": "duplicate"}
+            send_message._processing_requests.add(request_hash)
+        else:
+            send_message._processing_requests = {request_hash}
+        print(f"✅ [ADK_CHAT] {request_id} - Request added to processing set")
         
         # chat_id가 없으면 사용자의 최근 채팅 사용
         if not chat_id:
@@ -105,33 +126,40 @@ async def send_message(message: str, user_id: int, db: Session, chat_id: int = N
                 raise HTTPException(status_code=404, detail="No chat found for user")
             chat_id = user_chats[0].id
         
-        # 메시지 저장
-        db_message = Message(
-            chat_id=chat_id,
-            sender="user",
-            content=message
-        )
-        db.add(db_message)
-        db.commit()
-        db.refresh(db_message)
+        # 새로운 채팅인지 확인 (현재 메시지 제외하고 카운트)
+        # 현재 메시지를 제외한 사용자 메시지 카운트 (새 채팅 여부 확인용)
+        user_message_count = db.query(Message).filter(
+            Message.chat_id == chat_id,
+            Message.sender == "user",
+            Message.content != message  # 현재 메시지 제외
+        ).count()
+        
+        is_new_chat = user_message_count == 0  # 현재 메시지를 제외한 사용자 메시지가 없으면 새로운 채팅
+        print(f"🔍 [ADK Chat] User message count (excluding current): {user_message_count}")
+        print(f"🔍 [ADK Chat] is_new_chat: {is_new_chat}")
+        
+        # 디버깅: 현재 채팅의 모든 메시지 확인
+        all_messages = db.query(Message).filter(Message.chat_id == chat_id).order_by(Message.created_at).all()
+        print(f"🔍 [ADK Chat] All messages in chat {chat_id}:")
+        for msg in all_messages:
+            print(f"  - {msg.sender}: {msg.content[:20]}...")
+        
+        # 사용자 메시지는 이미 send_message_endpoint에서 저장되었으므로
+        # 여기서는 AI 응답만 생성하면 됨
+        print(f"✅ [ADK Chat] Processing AI response for chat {chat_id}")
         
         # ADK 표준 CallbackContext 생성
         callback_context = create_adk_context(user_id, chat_id)
         
+        # 새로운 채팅 정보를 callback_context에 추가
+        callback_context.state["is_new_chat"] = is_new_chat
+        print(f"🔍 [ADK Chat] Set is_new_chat in callback_context: {is_new_chat}")
+        
         # ADK 에이전트 호출
         response = await process_user_message(message, user_id, callback_context)
         
-        # 응답 메시지 저장
+        # 응답 메시지 내용 가져오기 (저장은 send_message_endpoint에서 처리)
         response_content = response.get("message", "죄송합니다. 응답을 생성할 수 없습니다.")
-        
-        db_response = Message(
-            chat_id=chat_id,
-            sender="assistant",
-            content=response_content
-        )
-        db.add(db_response)
-        db.commit()
-        db.refresh(db_response)
         
         print(f"✅ [ADK Chat] Response generated: '{response_content[:50]}...'")
         
@@ -145,10 +173,12 @@ async def send_message(message: str, user_id: int, db: Session, chat_id: int = N
         print(f"🔍 [ADK Chat] manual_analysis_params: {response.get('manual_analysis_params', 'NOT_FOUND')}")
         print(f"🔍 [ADK Chat] analysis_type: {response.get('analysis_type', 'NOT_FOUND')}")
         
+        # 요청 해시 제거
+        if hasattr(send_message, '_processing_requests') and request_hash in send_message._processing_requests:
+            send_message._processing_requests.remove(request_hash)
+        
         return {
             "message": response_content,
-            "message_id": db_response.id,
-            "timestamp": db_response.created_at.isoformat(),
             "status": response.get("status", "completed"),
             "dashboard_updated": response.get("dashboard_updated", False),
             "dashboard_updates": dashboard_updates,
