@@ -757,26 +757,21 @@ async def topic_modeling(
                 'random_state': 42
             }
         else:  # bertopic
-            # BERTopic uses minimal parameters to avoid validation issues
+            # BERTopic uses minimal parameters (auto-detects number of topics)
             tm_params = {
                 'method': method.lower()
             }
-            # Only add n_topics if explicitly provided
-            if n_topics_int is not None and n_topics_int > 0:
-                tm_params['n_topics'] = n_topics_int
+            # BERTopic automatically determines number of topics
         
         # Create TopicModeling instance
         tm = TopicModeling(**tm_params)
         
         # Fit the model
-        if method.lower() == "lda":
-            tm.set_docs(docs, doc_names).preprocess().fit(n_iter=20)
-        else:  # bertopic
-            tm.set_docs(docs, doc_names).preprocess().fit()
+        results = tm.fit(docs)
         
         # Get results
-        topics = tm.topics(topn=15)
-        document_topics = tm.document_topics()
+        topics = results['topics']
+        document_topics = results['document_assignments']
         
         # Check if any topics were found
         if len(topics) == 0:
@@ -800,13 +795,11 @@ async def topic_modeling(
             for i, topic in enumerate(topics):
                 # Prepare frequency data for wordcloud
                 if method.lower() == "lda":
-                    # For LDA, we need to get the topic components from the model
-                    comp = tm.model.lda.components_[i]
-                    vocab = tm.model.vocab
-                    freqs = {vocab[j]: float(comp[j]) for j in range(len(vocab))}
+                    # For LDA, use the topic words and weights
+                    freqs = {word: weight for word, weight in zip(topic['words'], topic['weights'])}
                 else:  # bertopic
-                    # For BERTopic, use the topic words directly
-                    freqs = {w: float(wt) for w, wt in topic.items()}
+                    # For BERTopic, use the topic words and weights
+                    freqs = {word: weight for word, weight in zip(topic['words'], topic['weights'])}
                 
                 # Create wordcloud
                 wc = WordCloud(
@@ -846,8 +839,8 @@ async def topic_modeling(
         # Prepare visualization data
         topic_data = []
         for i, topic in enumerate(topics):
-            words = list(topic.keys())
-            weights = list(topic.values())
+            words = topic['words']
+            weights = topic['weights']
             topic_data.append({
                 "topic_id": i + 1,  # 1-based indexing for users
                 "words": words,
@@ -859,29 +852,22 @@ async def topic_modeling(
         # Document-topic distribution
         doc_topic_data = []
         for i, doc_topic in enumerate(document_topics):
-            # Convert topic names from topic_0, topic_1, ... to topic_1, topic_2, ...
-            user_friendly_distribution = {}
-            for topic_name, value in doc_topic.items():
-                if topic_name.startswith("topic_"):
-                    topic_num = int(topic_name.split("_")[1])
-                    user_friendly_distribution[f"topic_{topic_num + 1}"] = value
-                else:
-                    user_friendly_distribution[topic_name] = value
-            
             doc_topic_data.append({
                 "doc_id": i,
                 "doc_name": doc_names[i] if i < len(doc_names) else f"doc_{i}",
-                "topic_distribution": user_friendly_distribution
+                "dominant_topic": doc_topic['dominant_topic'] + 1,  # 1-based indexing
+                "topic_probability": doc_topic['topic_probability'],
+                "document_preview": doc_topic['document']
             })
         
         # Get model information
-        model_info = tm.get_model_info()
+        model_info = results['model_info']
         
         print(f"DEBUG: Returning results with {len(topic_data)} topics and {len(wordclouds)} wordclouds")
         return {
             "method": method,
-            "n_topics": model_info["n_topics"],
-            "is_auto_topic_detection": model_info["is_auto_topic_detection"],
+            "n_topics": model_info.get("n_topics", len(topic_data)),
+            "is_auto_topic_detection": model_info.get("is_auto_topic_detection", method.lower() == "bertopic"),
             "topics": topic_data,
             "document_topics": doc_topic_data,
             "total_documents": len(docs),
@@ -990,13 +976,11 @@ async def get_topic_wordcloud(
                 'random_state': 42
             }
         else:  # bertopic
-            # BERTopic uses minimal parameters
+            # BERTopic uses minimal parameters (auto-detects number of topics)
             tm_params = {
                 'method': method.lower()
             }
-            # Only add n_topics if explicitly provided
-            if n_topics_int is not None and n_topics_int > 0:
-                tm_params['n_topics'] = n_topics_int
+            # BERTopic automatically determines number of topics
         
         # Initialize and fit model
         tm = TopicModeling(**tm_params)

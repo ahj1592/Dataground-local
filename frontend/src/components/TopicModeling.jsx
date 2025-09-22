@@ -4,7 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D', '#FFC658', '#FF6B6B', '#4ECDC4', '#45B7D1'];
 
-const TopicModeling = ({ params }) => {
+const TopicModeling = ({ params = {} }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -97,19 +97,27 @@ const TopicModeling = ({ params }) => {
     );
   }
 
-  const { topics, document_topics, method, n_topics, total_documents, is_auto_topic_detection, model_info } = data;
+  const { 
+    topics = [], 
+    document_topics = [], 
+    method = 'lda', 
+    n_topics = 0, 
+    total_documents = 0, 
+    is_auto_topic_detection = false, 
+    model_info = {} 
+  } = data || {};
 
   // Prepare data for topic word charts
-  const topicWordsData = topics[selectedTopic]?.words.map((word, index) => ({
+  const topicWordsData = topics[selectedTopic]?.words?.map((word, index) => ({
     word,
-    weight: topics[selectedTopic].weights[index]
+    weight: topics[selectedTopic].weights?.[index] || 0
   })) || [];
 
   // Prepare data for document-topic distribution
   const docTopicData = document_topics.slice(0, 10).map((doc, index) => ({
-    document: doc.doc_name,
+    document: doc.doc_name || doc.document || `Document ${index + 1}`,
     ...Object.fromEntries(
-      Object.entries(doc.topic_distribution).map(([key, value]) => [
+      Object.entries(doc.topic_distribution || {}).map(([key, value]) => [
         key.replace('topic_', 'Topic '),
         value
       ])

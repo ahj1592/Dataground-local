@@ -326,7 +326,7 @@ function ChatPage({ token, onLogout }) {
           {params && (params.task === 'slr-risk' || params.analysis_type === 'sea_level_rise') && <MapDisplay params={params} />}
           {params && params.task === 'urban-area-comprehensive' && <><MapDisplay params={params} /><UrbanAreaComprehensiveCharts startYear={params.year1} endYear={params.year2} /></>}
           {params && params.task === 'infrastructure-exposure' && <InfrastructureExposure year={params.year1} threshold={params.threshold} city={params.city} />}
-          {params && params.task === 'topic-modeling' && <TopicModeling params={params} />}
+          {params && params.task === 'topic-modeling' && <TopicModeling params={params || {}} />}
         </Box>
       </Panel>
     </PanelGroup>
