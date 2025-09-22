@@ -1,0 +1,26 @@
+fastapi
+uvicorn
+sqlalchemy
+pydantic
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+openai
+python-dotenv
+requests
+pandas
+httpx
+
+# Google ADK Dependencies
+google-adk
+litellm
+
+# Topic Modeling Dependencies
+numpy
+matplotlib
+scikit-learn
+bertopic
+python-docx
+PyPDF2
+pdfplumber
+wordcloud

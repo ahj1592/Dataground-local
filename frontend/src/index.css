@@ -1,0 +1,32 @@
+/* Resizable Panels Styles */
+.resize-handle {
+  background: #e0e0e0;
+  width: 4px;
+  cursor: col-resize;
+  transition: background 0.2s ease;
+  position: relative;
+}
+
+.resize-handle:hover {
+  background: #999;
+}
+
+.resize-handle:active {
+  background: #666;
+}
+
+/* Ensure panels take full height */
+[data-panel-group] {
+  height: 100vh;
+}
+
+[data-panel] {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Smooth transitions for panel content */
+[data-panel] > * {
+  height: 100%;
+  transition: all 0.2s ease;
+}

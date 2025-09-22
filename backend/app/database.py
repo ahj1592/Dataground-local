@@ -1,0 +1,22 @@
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, Session
+from .models import Base
+import os
+
+DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./chat_app.db')
+
+engine = create_engine(
+    DATABASE_URL, connect_args={"check_same_thread": False}
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Create tables
+Base.metadata.create_all(bind=engine)
+
+def get_db():
+    """데이터베이스 세션 의존성"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
