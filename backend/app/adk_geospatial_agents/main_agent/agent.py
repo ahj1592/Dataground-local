@@ -24,6 +24,7 @@ from .tools import (
 )
 from ..shared.utils.parameter_collector import parameter_collector
 from ..shared.utils.bbox_utils import calculate_bbox, get_standard_buffer
+from ..shared.utils.command_system import command_parser, command_executor
 
 date_today = date.today()
 
@@ -51,6 +52,24 @@ async def process_user_message(message: str, user_id: int, callback_context: Cal
     user_state = user_states[user_id]
     
     print(f"🚀 [Main Agent] Processing message from user {user_id}: '{message[:50]}...'")
+    
+    # 1. Check for commands first (highest priority)
+    command = command_parser.parse_command(message)
+    if command:
+        print(f"🔧 [Main Agent] Command detected: {command.type}")
+        result = await command_executor.execute_command(command, user_id, callback_context)
+        
+        # Add AI response to conversation context
+        if "conversation_context" not in user_state:
+            user_state["conversation_context"] = []
+        
+        user_state["conversation_context"].append({
+            "role": "assistant",
+            "content": result.get("message", ""),
+            "timestamp": "now"
+        })
+        
+        return result
     
     # Check if new chat and initialize state
     is_new_chat = callback_context.state.get("is_new_chat", False)
