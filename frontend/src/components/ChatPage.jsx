@@ -32,6 +32,23 @@ function ChatPage({ token, onLogout }) {
     console.log('🔍 [ChatPage] Params state updated');
   };
 
+  const handleYearChange = useCallback((newYear, newEndYear = null) => {
+    console.log('🔍 [ChatPage] handleYearChange called with:', newYear, newEndYear);
+    if (params) {
+      const updatedParams = { ...params };
+      if (newEndYear !== null) {
+        // 두 개의 연도가 있는 경우 (start_year, end_year)
+        updatedParams.year1 = newYear;
+        updatedParams.year2 = newEndYear;
+      } else {
+        // 하나의 연도만 있는 경우
+        updatedParams.year1 = newYear;
+      }
+      setParams(updatedParams);
+      console.log('🔍 [ChatPage] Updated params with new year:', updatedParams);
+    }
+  }, [params]);
+
   useEffect(() => {
     const fetchChats = async () => {
       setLoadingChats(true);
@@ -324,8 +341,9 @@ function ChatPage({ token, onLogout }) {
           {/* Show analytics based on params */}
           {!params && <div style={{ color: '#888', textAlign: 'center', marginTop: 100 }}>Select analysis options and click "Analyze it" to view analytics.</div>}
           {params && (params.task === 'slr-risk' || params.analysis_type === 'sea_level_rise') && <MapDisplay params={params} />}
-          {params && params.task === 'urban-area-comprehensive' && <><MapDisplay params={params} /><UrbanAreaComprehensiveCharts startYear={params.year1} endYear={params.year2} /></>}
-          {params && params.task === 'infrastructure-exposure' && <InfrastructureExposure year={params.year1} threshold={params.threshold} city={params.city} />}
+          {params && params.task === 'urban-area-stats' && <UrbanAreaCharts year={params.year1} onYearChange={handleYearChange} />}
+          {params && params.task === 'urban-area-comprehensive' && <><MapDisplay params={params} /><UrbanAreaComprehensiveCharts startYear={params.year1} endYear={params.year2} onYearChange={handleYearChange} /></>}
+          {params && params.task === 'infrastructure-exposure' && <InfrastructureExposure year={params.year1} threshold={params.threshold} city={params.city} onYearChange={handleYearChange} />}
           {params && params.task === 'topic-modeling' && <TopicModeling params={params || {}} />}
         </Box>
       </Panel>

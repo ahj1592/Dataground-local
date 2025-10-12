@@ -1,14 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { generateYearOptions, getYearRangeText, getDataSourceText } from '../utils/yearSelector';
 
-function UrbanAreaComprehensiveCharts({ startYear, endYear }) {
+function UrbanAreaComprehensiveCharts({ startYear, endYear, onYearChange }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [selectedStartYear, setSelectedStartYear] = useState(startYear);
+  const [selectedEndYear, setSelectedEndYear] = useState(endYear);
+  const [yearOptions, setYearOptions] = useState({ options: '', dataInfo: null });
 
+  // 연도 옵션 초기화
   useEffect(() => {
-    if (!startYear || !endYear) return;
+    const { options, dataInfo } = generateYearOptions('urban-area-comprehensive');
+    setYearOptions({ options, dataInfo });
+  }, []);
+
+  // 연도 변경 시 데이터 로드
+  useEffect(() => {
+    if (!selectedStartYear || !selectedEndYear) return;
     setError(null);
-    fetch(`http://localhost:8000/analysis/urban-area-comprehensive-stats?start_year=${startYear}&end_year=${endYear}`)
+    fetch(`http://localhost:8000/analysis/urban-area-comprehensive-stats?start_year=${selectedStartYear}&end_year=${selectedEndYear}`)
       .then(res => {
         if (!res.ok) throw new Error('Invalid year range or server error');
         return res.json();
@@ -60,7 +71,33 @@ function UrbanAreaComprehensiveCharts({ startYear, endYear }) {
         setData({ ...json, chartData, growthData });
       })
       .catch(err => setError(err.message));
-  }, [startYear, endYear]);
+  }, [selectedStartYear, selectedEndYear]);
+
+  // 외부에서 year props가 변경되면 내부 상태도 업데이트
+  useEffect(() => {
+    if (startYear && startYear !== selectedStartYear) {
+      setSelectedStartYear(startYear);
+    }
+    if (endYear && endYear !== selectedEndYear) {
+      setSelectedEndYear(endYear);
+    }
+  }, [startYear, endYear, selectedStartYear, selectedEndYear]);
+
+  const handleStartYearChange = (e) => {
+    const newYear = Number(e.target.value);
+    setSelectedStartYear(newYear);
+    if (onYearChange) {
+      onYearChange(newYear, selectedEndYear);
+    }
+  };
+
+  const handleEndYearChange = (e) => {
+    const newYear = Number(e.target.value);
+    setSelectedEndYear(newYear);
+    if (onYearChange) {
+      onYearChange(selectedStartYear, newYear);
+    }
+  };
 
   if (error) return <div style={{ color: 'red' }}>Error: {error}</div>;
   if (!data) return <div>Loading comprehensive urban area stats...</div>;
@@ -78,6 +115,37 @@ function UrbanAreaComprehensiveCharts({ startYear, endYear }) {
 
   return (
     <div style={{ marginTop: 32 }}>
+      {/* 연도 선택기 */}
+      <div style={{ marginBottom: 24, padding: 16, background: '#f5f5f5', borderRadius: 8 }}>
+        <h4 style={{ margin: '0 0 12px 0' }}>분석 기간 선택</h4>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 8 }}>
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontSize: 14 }}>시작 연도:</label>
+            <select 
+              value={selectedStartYear} 
+              onChange={handleStartYearChange} 
+              style={{ width: '120px', padding: '8px' }}
+              dangerouslySetInnerHTML={{ __html: yearOptions.options }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontSize: 14 }}>종료 연도:</label>
+            <select 
+              value={selectedEndYear} 
+              onChange={handleEndYearChange} 
+              style={{ width: '120px', padding: '8px' }}
+              dangerouslySetInnerHTML={{ __html: yearOptions.options }}
+            />
+          </div>
+        </div>
+        <div style={{ fontSize: 12, color: '#666' }}>
+          {getYearRangeText('urban-area-comprehensive')}
+        </div>
+        <div style={{ fontSize: 12, color: '#888' }}>
+          {getDataSourceText('urban-area-comprehensive')}
+        </div>
+      </div>
+
       {/* Summary Statistics */}
       <div style={{ 
         display: 'grid', 

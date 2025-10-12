@@ -4,6 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import { Icon } from 'leaflet';
 import { DataGrid } from '@mui/x-data-grid';
 import { getCityCoordinates } from '../api';
+import { generateYearOptions, getYearRangeText, getDataSourceText } from '../utils/yearSelector';
 
 // Custom icons for different infrastructure types
 const createCustomIcon = (color) => {
@@ -33,18 +34,34 @@ const JAKARTA_BOUNDS = [
   [-6.089, 106.971], // Northeast (lat, lng)
 ];
 
-const InfrastructureExposure = ({ year, threshold, city }) => {
+const InfrastructureExposure = ({ year, threshold, city, onYearChange }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [cityBounds, setCityBounds] = useState(JAKARTA_BOUNDS);
   const [mapCenter, setMapCenter] = useState(null);
+  const [selectedYear, setSelectedYear] = useState(year);
+  const [yearOptions, setYearOptions] = useState({ options: '', dataInfo: null });
 
+  // 연도 옵션 초기화
   useEffect(() => {
-    if (year && threshold !== undefined && city) {
+    const { options, dataInfo } = generateYearOptions('infrastructure-exposure');
+    setYearOptions({ options, dataInfo });
+  }, []);
+
+  // 연도 변경 시 데이터 로드
+  useEffect(() => {
+    if (selectedYear && threshold !== undefined && city) {
       fetchInfrastructureData();
     }
-  }, [year, threshold, city]);
+  }, [selectedYear, threshold, city]);
+
+  // 외부에서 year prop이 변경되면 내부 상태도 업데이트
+  useEffect(() => {
+    if (year && year !== selectedYear) {
+      setSelectedYear(year);
+    }
+  }, [year, selectedYear]);
 
   const fetchInfrastructureData = async () => {
     setLoading(true);
@@ -72,7 +89,7 @@ const InfrastructureExposure = ({ year, threshold, city }) => {
       ];
       setCityBounds(newBounds);
       
-      const response = await fetch(`http://localhost:8000/analysis/infrastructure-exposure?year=${year}&threshold=${threshold}&min_lat=${minLat}&min_lon=${minLng}&max_lat=${maxLat}&max_lon=${maxLng}`);
+      const response = await fetch(`http://localhost:8000/analysis/infrastructure-exposure?year=${selectedYear}&threshold=${threshold}&min_lat=${minLat}&min_lon=${minLng}&max_lat=${maxLat}&max_lon=${maxLng}`);
       if (!response.ok) {
         throw new Error('Failed to fetch infrastructure data');
       }
@@ -126,10 +143,43 @@ const InfrastructureExposure = ({ year, threshold, city }) => {
     }
   ];
 
+  const handleYearChange = (e) => {
+    const newYear = Number(e.target.value);
+    setSelectedYear(newYear);
+    if (onYearChange) {
+      onYearChange(newYear);
+    }
+  };
+
   return (
     <div style={{ padding: '2rem' }}>
       <h2>Infrastructure Exposure Analysis</h2>
-      <p>Year: {year} | Sea Level Threshold: {threshold}m</p>
+      
+      {/* 연도 선택기 */}
+      <div style={{ marginBottom: 24, padding: 16, background: '#f5f5f5', borderRadius: 8 }}>
+        <h4 style={{ margin: '0 0 12px 0' }}>분석 연도 선택</h4>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 8 }}>
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontSize: 14 }}>연도:</label>
+            <select 
+              value={selectedYear} 
+              onChange={handleYearChange} 
+              style={{ width: '120px', padding: '8px' }}
+              dangerouslySetInnerHTML={{ __html: yearOptions.options }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: 4, fontSize: 14 }}>해수면 임계값:</label>
+            <span style={{ fontSize: 16, fontWeight: 'bold' }}>{threshold}m</span>
+          </div>
+        </div>
+        <div style={{ fontSize: 12, color: '#666' }}>
+          {getYearRangeText('infrastructure-exposure')}
+        </div>
+        <div style={{ fontSize: 12, color: '#888' }}>
+          {getDataSourceText('infrastructure-exposure')}
+        </div>
+      </div>
       
       {/* Statistics Summary */}
       <div style={{ 

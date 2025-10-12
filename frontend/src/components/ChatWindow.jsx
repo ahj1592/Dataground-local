@@ -69,7 +69,7 @@ function ChatWindow({ messages, onSend, loading }) {
               px: 2, py: 1, maxWidth: '70%',
               wordBreak: 'break-word',
             }}>
-              <Typography variant="body1">{msg.content}</Typography>
+              <Typography variant="body1" sx={{ whiteSpace: 'pre-line' }}>{msg.content}</Typography>
             </Paper>
           </Box>
         ))}

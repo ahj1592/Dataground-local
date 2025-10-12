@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { getCountries, getCitiesByCountry } from '../api';
+import { generateYearOptions, getYearRangeText, getDataSourceText, validateYearInput, autoAdjustYear } from '../utils/yearSelector';
 
 const TASKS = [
   { value: 'slr-risk', label: 'Sea-Level Rise Risk', years: 1, minYear: 2014, maxYear: 2024 },
+  { value: 'urban-area-stats', label: 'Urban Area Stats', years: 1, minYear: 2001, maxYear: 2020 },
   { value: 'urban-area-comprehensive', label: 'Urban Area Comprehensive', years: 2, minYear: 2001, maxYear: 2020 },
   { value: 'infrastructure-exposure', label: 'Infrastructure Exposure', years: 1, minYear: 2001, maxYear: 2020 },
   { value: 'topic-modeling', label: 'Topic Modeling', years: 0, minYear: 0, maxYear: 0 },
@@ -35,6 +37,11 @@ function MapSidebar({ onAnalyze, initialParams = null }) {
   const selectedTask = TASKS.find(t => t.value === task);
   const minYear = selectedTask.minYear;
   const maxYear = selectedTask.maxYear;
+  
+  // 연도 선택기 상태
+  const [yearOptions, setYearOptions] = useState({ options: '', dataInfo: null });
+  const [yearRangeText, setYearRangeText] = useState('');
+  const [dataSourceText, setDataSourceText] = useState('');
 
   // Load countries on component mount
   useEffect(() => {
@@ -112,6 +119,25 @@ function MapSidebar({ onAnalyze, initialParams = null }) {
     loadCities();
   }, [selectedCountry]);
 
+  // 연도 선택기 업데이트
+  useEffect(() => {
+    if (task !== 'topic-modeling') {
+      const { options, dataInfo } = generateYearOptions(task);
+      setYearOptions({ options, dataInfo });
+      setYearRangeText(getYearRangeText(task));
+      setDataSourceText(getDataSourceText(task));
+      
+      // 기본값 설정 (최신 연도)
+      if (dataInfo && dataInfo.years.length > 0) {
+        const latestYear = Math.max(...dataInfo.years);
+        setYear1(latestYear);
+        if (selectedTask.years === 2) {
+          setYear2(latestYear);
+        }
+      }
+    }
+  }, [task, selectedTask.years]);
+
   const handleAnalyze = () => {
     if (task === 'topic-modeling') {
       const params = {
@@ -135,12 +161,27 @@ function MapSidebar({ onAnalyze, initialParams = null }) {
       console.log('MapSidebar - topic modeling params:', params);
       onAnalyze(params);
     } else {
+      // 연도 유효성 검사 및 자동 조정
+      const adjustedYear1 = autoAdjustYear(year1, task);
+      const adjustedYear2 = selectedTask.years === 2 ? autoAdjustYear(year2, task) : null;
+      
+      // 연도가 조정되었는지 확인하고 사용자에게 알림
+      if (adjustedYear1 !== year1) {
+        alert(`입력하신 연도 ${year1}년은 사용할 수 없습니다. ${adjustedYear1}년으로 자동 조정됩니다.`);
+        setYear1(adjustedYear1);
+      }
+      
+      if (selectedTask.years === 2 && adjustedYear2 !== year2) {
+        alert(`입력하신 연도 ${year2}년은 사용할 수 없습니다. ${adjustedYear2}년으로 자동 조정됩니다.`);
+        setYear2(adjustedYear2);
+      }
+      
       const params = {
         country: selectedCountry,
         city: selectedCity,
         task,
-        year1,
-        year2: selectedTask.years === 2 ? year2 : null,
+        year1: adjustedYear1,
+        year2: selectedTask.years === 2 ? adjustedYear2 : null,
         mapOption: 'OpenStreetMap',
         threshold,
       };
@@ -325,15 +366,42 @@ function MapSidebar({ onAnalyze, initialParams = null }) {
           {selectedTask.years === 1 ? (
             <div>
               <label>Year: </label>
-              <input type="number" value={year1} onChange={e => setYear1(Number(e.target.value))} min={minYear} max={maxYear} style={{ width: 100 }} />
+              <select 
+                value={year1} 
+                onChange={e => setYear1(Number(e.target.value))} 
+                style={{ width: '100%', marginBottom: 8 }}
+                dangerouslySetInnerHTML={{ __html: yearOptions.options }}
+              />
+              <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
+                {yearRangeText}
+              </div>
+              <div style={{ fontSize: 12, color: '#888' }}>
+                {dataSourceText}
+              </div>
             </div>
           ) : (
             <div>
               <label>Start Year: </label>
-              <input type="number" value={year1} onChange={e => setYear1(Number(e.target.value))} min={minYear} max={maxYear} style={{ width: 100 }} />
+              <select 
+                value={year1} 
+                onChange={e => setYear1(Number(e.target.value))} 
+                style={{ width: '100%', marginBottom: 8 }}
+                dangerouslySetInnerHTML={{ __html: yearOptions.options }}
+              />
               <br />
               <label>End Year: </label>
-              <input type="number" value={year2} onChange={e => setYear2(Number(e.target.value))} min={minYear} max={maxYear} style={{ width: 100 }} />
+              <select 
+                value={year2} 
+                onChange={e => setYear2(Number(e.target.value))} 
+                style={{ width: '100%', marginBottom: 8 }}
+                dangerouslySetInnerHTML={{ __html: yearOptions.options }}
+              />
+              <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
+                {yearRangeText}
+              </div>
+              <div style={{ fontSize: 12, color: '#888' }}>
+                {dataSourceText}
+              </div>
             </div>
           )}
           <h4 style={{ marginTop: 24 }}>Sea Level Threshold (m)</h4>

@@ -6,17 +6,63 @@ import os
 from pathlib import Path
 from typing import List, Optional
 import json
+import tempfile
+from dotenv import load_dotenv
+
 
 router = APIRouter()
+load_dotenv()
 
 # --- GEE Setup ---
 def gee_initialize():
-    """Initialize Google Earth Engine with the specified project."""
+    """Initialize Google Earth Engine with service account authentication."""
     try:
-        ee.Initialize(project='data-ground-demo')
-    except Exception:
-        ee.Authenticate()
-        ee.Initialize(project='data-ground-demo')
+        service_account_file = os.getenv('GOOGLE_CREDENTIALS')  # JSON 파일 경로 또는 JSON 문자열
+        if not service_account_file:
+            raise ValueError("GOOGLE_CREDENTIALS env variable not found.")
+        
+        # JSON 파일 경로인지 JSON 문자열인지 확인
+        if service_account_file.startswith('{'):
+            # JSON 문자열인 경우 임시 파일로 저장
+            with tempfile.NamedTemporaryFile(mode="w+", suffix=".json", delete=False) as f:
+                json.dump(json.loads(service_account_file), f)
+                temp_path = f.name
+        else:
+            # 파일 경로인 경우
+            temp_path = service_account_file
+        
+        if os.path.exists(temp_path):
+            credentials = ee.ServiceAccountCredentials(
+                email='gee-demo@dataground-demo.iam.gserviceaccount.com',  # JSON의 client_email 사용
+                key_file=temp_path,
+            )
+            ee.Initialize(credentials, project='dataground-demo')
+            print("GEE initialized with service account authentication")
+        else:
+            print(f"Service account file '{service_account_file}' not found. Attempting interactive authentication...")
+            ee.Authenticate()
+            ee.Initialize(project='dataground-demo')
+            print("GEE initialized with interactive authentication")
+            
+    except Exception as e:
+        print(f"Error initializing GEE: {str(e)}")
+        try:
+            ee.Authenticate()
+            ee.Initialize(project='dataground-demo')
+            print("GEE initialized with interactive authentication (fallback)")
+        except Exception as e2:
+            print(f"Failed to initialize GEE: {str(e2)}")
+            raise
+
+# === OLD CODE (ahj personal account)===
+# def gee_initialize():
+#     """Initialize Google Earth Engine with the specified project."""
+#     try:
+#         ee.Initialize(project='data-ground-demo')
+#     except Exception:
+#         ee.Authenticate()
+#         ee.Initialize(project='data-ground-demo')
+
 gee_initialize()
 
 # Use Jakarta bounding box polygon
@@ -53,21 +99,21 @@ def slr_risk(
         'region': bbox
     })
     
-    # 위험 지역 통계 계산
-    # 위험 지역의 픽셀 수를 계산하여 면적 추정
+    # Calculate risk area statistics
+    # Calculate number of risk pixels to estimate area
     risk_pixels = slr_mask.reduceRegion(
         reducer=ee.Reducer.sum(),
         geometry=bbox,
-        scale=30,  # SRTM 해상도
+        scale=30,  # SRTM resolution
         maxPixels=1e9
     ).getInfo()
     
-    total_pixels = bbox.area(10).getInfo() / (30 * 30)  # 30m 해상도 기준 픽셀 수
-    risk_area = risk_pixels.get('constant', 0) * 30 * 30  # 제곱미터
-    total_area = bbox.area(10).getInfo()  # 제곱미터
+    total_pixels = bbox.area(10).getInfo() / (30 * 30)  # Number of pixels based on 30m resolution
+    risk_area = risk_pixels.get('constant', 0) * 30 * 30  # Square meters
+    total_area = bbox.area(10).getInfo()  # Square meters
     risk_percentage = (risk_area / total_area) * 100 if total_area > 0 else 0
     
-    # 중심점 계산
+    # Calculate center point
     center_lat = (min_lat + max_lat) / 2
     center_lon = (min_lon + max_lon) / 2
     
@@ -80,7 +126,7 @@ def slr_risk(
             "bbox": [min_lon, min_lat, max_lon, max_lat]
         },
         "chart_data": {
-            "risk_area_km2": risk_area / 1e6,  # 제곱킬로미터로 변환
+            "risk_area_km2": risk_area / 1e6,  # Convert to square kilometers
             "total_area_km2": total_area / 1e6,
             "risk_percentage": round(risk_percentage, 2),
             "threshold": threshold

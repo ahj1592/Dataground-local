@@ -101,7 +101,7 @@ async def send_message_endpoint(chat_id: int, content: str, current_user: models
         ai_msg = models.Message(
             chat_id=chat_id, 
             sender="assistant", 
-            content=response.get("message", "죄송합니다. 응답을 생성할 수 없습니다.")
+            content=response.get("message", "Sorry, I cannot generate a response.")
         )
         db.add(ai_msg)
         db.commit()
@@ -134,7 +134,7 @@ async def send_message_endpoint(chat_id: int, content: str, current_user: models
         error_msg = models.Message(
             chat_id=chat_id,
             sender="assistant", 
-            content=f"죄송합니다. 오류가 발생했습니다: {str(e)}"
+            content=f"Sorry, an error occurred: {str(e)}"
         )
         db.add(error_msg)
         db.commit()
@@ -195,14 +195,14 @@ async def generate_ai_response_endpoint(chat_id: int, current_user: models.User 
                 user_id=current_user.id,
                 db=db
             )
-            ai_content = response.get("message", "죄송합니다. 응답을 생성할 수 없습니다.")
+            ai_content = response.get("message", "Sorry, I cannot generate a response.")
             print(f"✅ [ADK] AI response generated: {ai_content[:100]}...")
             
         except Exception as e:
             print(f"❌ [ADK] Error generating AI response: {str(e)}")
             import traceback
             traceback.print_exc()
-            ai_content = f"죄송합니다. 오류가 발생했습니다: {str(e)}"
+            ai_content = f"Sorry, an error occurred: {str(e)}"
     
     # Store AI message
     ai_msg = models.Message(chat_id=chat_id, sender="assistant", content=ai_content)

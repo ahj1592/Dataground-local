@@ -1,17 +1,27 @@
 import React, { useEffect, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, BarChart, Bar, ResponsiveContainer } from 'recharts';
+import { generateYearOptions, getYearRangeText, getDataSourceText } from '../utils/yearSelector';
 
 // Calculate bbox area in km² (approximate, for Jakarta bbox)
 const JAKARTA_BBOX_AREA_KM2 = 662; // You can adjust this value as needed
 
-function UrbanAreaCharts({ year }) {
+function UrbanAreaCharts({ year, onYearChange }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [selectedYear, setSelectedYear] = useState(year);
+  const [yearOptions, setYearOptions] = useState({ options: '', dataInfo: null });
 
+  // 연도 옵션 초기화
   useEffect(() => {
-    if (!year) return;
+    const { options, dataInfo } = generateYearOptions('urban-area-stats');
+    setYearOptions({ options, dataInfo });
+  }, []);
+
+  // 연도 변경 시 데이터 로드
+  useEffect(() => {
+    if (!selectedYear) return;
     setError(null);
-    fetch(`http://localhost:8000/analysis/urban-area-stats?year=${year}`)
+    fetch(`http://localhost:8000/analysis/urban-area-stats?year=${selectedYear}`)
       .then(res => {
         if (!res.ok) throw new Error('Invalid year or server error');
         return res.json();
@@ -20,13 +30,45 @@ function UrbanAreaCharts({ year }) {
         setData(json);
       })
       .catch(err => setError(err.message));
-  }, [year]);
+  }, [selectedYear]);
+
+  // 외부에서 year prop이 변경되면 내부 상태도 업데이트
+  useEffect(() => {
+    if (year && year !== selectedYear) {
+      setSelectedYear(year);
+    }
+  }, [year, selectedYear]);
+
+  const handleYearChange = (e) => {
+    const newYear = Number(e.target.value);
+    setSelectedYear(newYear);
+    if (onYearChange) {
+      onYearChange(newYear);
+    }
+  };
 
   if (error) return <div style={{ color: 'red' }}>Error: {error}</div>;
   if (!data) return <div>Loading urban area stats...</div>;
 
   return (
     <div style={{ marginTop: 32 }}>
+      {/* 연도 선택기 */}
+      <div style={{ marginBottom: 24, padding: 16, background: '#f5f5f5', borderRadius: 8 }}>
+        <h4 style={{ margin: '0 0 12px 0' }}>분석 연도 선택</h4>
+        <select 
+          value={selectedYear} 
+          onChange={handleYearChange} 
+          style={{ width: '200px', padding: '8px', marginBottom: 8 }}
+          dangerouslySetInnerHTML={{ __html: yearOptions.options }}
+        />
+        <div style={{ fontSize: 12, color: '#666' }}>
+          {getYearRangeText('urban-area-stats')}
+        </div>
+        <div style={{ fontSize: 12, color: '#888' }}>
+          {getDataSourceText('urban-area-stats')}
+        </div>
+      </div>
+
       {/* Summary statistics */}
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 32, background: '#181c24', color: '#fff', padding: '24px 16px', borderRadius: 8 }}>
         <div>
