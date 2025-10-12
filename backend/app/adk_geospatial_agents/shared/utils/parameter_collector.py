@@ -1,132 +1,58 @@
 """
-ADK Parameter Collection Utility
+ADK Parameter Collection Utility - Strategy Pattern Implementation
 """
 
 import re
+from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional
 from .location_matcher import location_matcher
 
-class ParameterCollector:
-    """Utility class for collecting parameters needed for analysis"""
+class ParameterExtractionStrategy(ABC):
+    """Base strategy for parameter extraction"""
     
-    def __init__(self):
-        # Define required parameters and collection order for each task
-        self.required_params = {
-            "sea_level_rise": ["country_name", "city_name", "year", "threshold"],
-            "urban_analysis": ["country_name", "city_name", "start_year", "end_year", "threshold"],
-            "infrastructure_analysis": ["country_name", "city_name", "year", "threshold"],
-            "topic_modeling": ["method", "n_topics"]
-        }
-        
-        # Parameter question templates for each task
-        self.parameter_questions = {
-            "sea_level_rise": {
-                "country_name": "Which country would you like to analyze? (e.g., South Korea, United States)",
-                "city_name": "Which city would you like to analyze? (e.g., Seoul, Busan, New York)",
-                "year": "What year would you like to analyze? (2001-2020) (e.g., 2020, 2018)",
-                "threshold": "Please set the sea level rise threshold (e.g., 2.0m, 1.5m)"
-            },
-            "urban_analysis": {
-                "country_name": "Which country would you like to analyze? (e.g., South Korea, United States)",
-                "city_name": "Which city would you like to analyze? (e.g., Seoul, Busan, New York)",
-                "start_year": "Please enter the start year (2001-2020) (e.g., 2014, 2015)",
-                "end_year": "Please enter the end year (2001-2020) (e.g., 2020, 2019)",
-                "threshold": "Please set the sea level rise threshold (e.g., 2.0m, 1.5m)"
-            },
-            "infrastructure_analysis": {
-                "country_name": "Which country would you like to analyze? (e.g., South Korea, United States)",
-                "city_name": "Which city would you like to analyze? (e.g., Seoul, Busan, New York)",
-                "year": "What year would you like to analyze? (2001-2020) (e.g., 2020, 2018)",
-                "threshold": "Please set the sea level rise threshold (e.g., 2.0m, 1.5m)"
-            },
-            "topic_modeling": {
-                "method": "Which method would you like to use? (lda, nmf, bertopic)",
-                "n_topics": "How many topics would you like to analyze? (e.g., 10, 15)"
-            }
-        }
-        
+    @abstractmethod
+    async def extract(self, message: str, existing_params: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract parameters from message"""
+        pass
+    
+    @abstractmethod
+    def get_required_params(self) -> List[str]:
+        """Get list of required parameters for this analysis type"""
+        pass
+    
+    @abstractmethod
+    def get_parameter_questions(self) -> Dict[str, str]:
+        """Get parameter questions for this analysis type"""
+        pass
+
+class LocationBasedStrategy(ParameterExtractionStrategy):
+    """Strategy for analyses requiring location data (sea level, urban, infrastructure)"""
+    
+    def __init__(self, analysis_type: str):
+        self.analysis_type = analysis_type
         self.valid_years = list(range(2000, 2025))
         self.valid_thresholds = (0.5, 5.0)
     
-    async def _extract_parameters(self, message: str, analysis_type: str, existing_params: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Extract parameters from user message"""
+    async def extract(self, message: str, existing_params: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract parameters for location-based analyses"""
         extracted = {}
         message_lower = message.lower()
         
-        # Extract year
-        year_patterns = [
-            r'(\d{4})',
-            r'year\s*:?\s*(\d{4})',
-            r'in\s+(\d{4})',
-            r'(\d{4})\s*year',
-            r'(\d{4})\s*년'  # Korean "년" pattern added
-        ]
+        # Extract location information first
+        extracted.update(await self._extract_location_info(message, existing_params))
         
-        # Extract year for each analysis type
-        if analysis_type == "urban_analysis":
-            # urban_analysis collects start_year and end_year individually
-            # Year range patterns (e.g., "2014-2020", "2014 to 2020", "2014부터 2020까지")
-            range_patterns = [
-                r'(\d{4})\s*[-~]\s*(\d{4})',
-                r'(\d{4})\s+to\s+(\d{4})',
-                r'(\d{4})\s+부터\s+(\d{4})\s+까지',
-                r'from\s+(\d{4})\s+to\s+(\d{4})',
-                r'(\d{4})\s*-\s*(\d{4})'
-            ]
-            
-            for pattern in range_patterns:
-                match = re.search(pattern, message_lower)
-                if match:
-                    start_year = int(match.group(1))
-                    end_year = int(match.group(2))
-                    if (start_year in self.valid_years and end_year in self.valid_years and 
-                        start_year <= end_year):
-                        extracted['start_year'] = start_year
-                        extracted['end_year'] = end_year
-                        print(f"🔍 [ParameterCollector] Urban analysis range: start_year={start_year}, end_year={end_year}")
-                        break
-            
-            # Extract individual year (when only start_year or end_year is present)
-            if 'start_year' not in extracted and 'end_year' not in extracted:
-                for pattern in year_patterns:
-                    match = re.search(pattern, message_lower)
-                    if match:
-                        year = int(match.group(1))
-                        if year in self.valid_years:
-                            # If start_year exists, set as end_year; otherwise set as start_year
-                            if 'start_year' in existing_params:
-                                extracted['end_year'] = year
-                                print(f"🔍 [ParameterCollector] Urban analysis: extracted end_year={year}")
-                            else:
-                                extracted['start_year'] = year
-                                print(f"🔍 [ParameterCollector] Urban analysis: extracted start_year={year}")
-                            break
-        else:
-            # Extract year for other analysis types
-            for pattern in year_patterns:
-                match = re.search(pattern, message_lower)
-                if match:
-                    year = int(match.group(1))
-                    if year in self.valid_years:
-                        extracted['year'] = year
-                        break
+        # Extract year parameters
+        extracted.update(await self._extract_year_params(message_lower, existing_params))
         
         # Extract threshold
-        threshold_patterns = [
-            r'(\d+(?:\.\d+)?)\s*(?:meter|m|meters|미터)', # Korean "미터" pattern added
-            r'threshold\s*:?\s*(\d+(?:\.\d+)?)',
-            r'(\d+(?:\.\d+)?)\s*m\s*threshold'
-        ]
+        extracted.update(await self._extract_threshold(message_lower))
         
-        for pattern in threshold_patterns:
-            match = re.search(pattern, message_lower)
-            if match:
-                threshold = float(match.group(1))
-                if self.valid_thresholds[0] <= threshold <= self.valid_thresholds[1]:
-                    extracted['threshold'] = threshold
-                    break
+        return extracted
+    
+    async def _extract_location_info(self, message: str, existing_params: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract location information (city/country)"""
+        extracted = {}
         
-        # Extract location information (city/country)
         # Try city search first
         city_result = location_matcher.extract_location_from_message(message, "city")
         if city_result["found"]:
@@ -166,53 +92,217 @@ class ParameterCollector:
                 # Location information not found
                 extracted['location_error'] = "Location information not found."
         
-        # Topic modeling parameters
-        if analysis_type == "topic_modeling":
-            # Extract method
-            method_patterns = [
-                r'\b(lda|nmf|bertopic)\b',
-                r'method\s*:?\s*(lda|nmf|bertopic)'
+        return extracted
+    
+    async def _extract_year_params(self, message_lower: str, existing_params: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract year parameters based on analysis type"""
+        extracted = {}
+        
+        if self.analysis_type == "urban_analysis":
+            # Extract year range for urban analysis
+            range_patterns = [
+                r'(\d{4})\s*[-~]\s*(\d{4})',
+                r'(\d{4})\s+to\s+(\d{4})',
+                r'(\d{4})\s+부터\s+(\d{4})\s+까지',
+                r'from\s+(\d{4})\s+to\s+(\d{4})',
+                r'(\d{4})\s*-\s*(\d{4})'
             ]
-            for pattern in method_patterns:
-                match = re.search(pattern, message_lower)
-                if match:
-                    extracted['method'] = match.group(1)
-                    break
             
-            # Extract number of topics
-            n_topics_patterns = [
-                r'(\d+)\s*(?:topics|topic)',
-                r'n_topics\s*:?\s*(\d+)'
-            ]
-            for pattern in n_topics_patterns:
+            for pattern in range_patterns:
                 match = re.search(pattern, message_lower)
                 if match:
-                    n_topics = int(match.group(1))
-                    if 2 <= n_topics <= 20:
-                        extracted['n_topics'] = n_topics
+                    start_year = int(match.group(1))
+                    end_year = int(match.group(2))
+                    if (start_year in self.valid_years and end_year in self.valid_years and 
+                        start_year <= end_year):
+                        extracted['start_year'] = start_year
+                        extracted['end_year'] = end_year
+                        break
+            
+            # Extract individual year if range not found
+            if 'start_year' not in extracted and 'end_year' not in extracted:
+                year_patterns = [r'(\d{4})', r'year\s*:?\s*(\d{4})', r'in\s+(\d{4})', r'(\d{4})\s*year', r'(\d{4})\s*년']
+                for pattern in year_patterns:
+                    match = re.search(pattern, message_lower)
+                    if match:
+                        year = int(match.group(1))
+                        if year in self.valid_years:
+                            if 'start_year' in existing_params:
+                                extracted['end_year'] = year
+                            else:
+                                extracted['start_year'] = year
+                            break
+        else:
+            # Extract single year for other analyses
+            year_patterns = [r'(\d{4})', r'year\s*:?\s*(\d{4})', r'in\s+(\d{4})', r'(\d{4})\s*year', r'(\d{4})\s*년']
+            for pattern in year_patterns:
+                match = re.search(pattern, message_lower)
+                if match:
+                    year = int(match.group(1))
+                    if year in self.valid_years:
+                        extracted['year'] = year
                         break
         
         return extracted
     
+    async def _extract_threshold(self, message_lower: str) -> Dict[str, Any]:
+        """Extract threshold parameter"""
+        extracted = {}
+        
+        threshold_patterns = [
+            r'(\d+(?:\.\d+)?)\s*(?:meter|m|meters|미터)',
+            r'threshold\s*:?\s*(\d+(?:\.\d+)?)',
+            r'(\d+(?:\.\d+)?)\s*m\s*threshold'
+        ]
+        
+        for pattern in threshold_patterns:
+            match = re.search(pattern, message_lower)
+            if match:
+                threshold = float(match.group(1))
+                if self.valid_thresholds[0] <= threshold <= self.valid_thresholds[1]:
+                    extracted['threshold'] = threshold
+                    break
+        
+        return extracted
+    
+    def get_required_params(self) -> List[str]:
+        """Get required parameters based on analysis type"""
+        if self.analysis_type == "urban_analysis":
+            return ["country_name", "city_name", "start_year", "end_year", "threshold"]
+        else:
+            return ["country_name", "city_name", "year", "threshold"]
+    
+    def get_parameter_questions(self) -> Dict[str, str]:
+        """Get parameter questions based on analysis type"""
+        base_questions = {
+            "country_name": "Which country would you like to analyze? (e.g., South Korea, United States)",
+            "city_name": "Which city would you like to analyze? (e.g., Seoul, Busan, New York)",
+            "threshold": "Please set the sea level rise threshold (e.g., 2.0m, 1.5m)"
+        }
+        
+        if self.analysis_type == "urban_analysis":
+            base_questions.update({
+                "start_year": "Please enter the start year (2001-2020) (e.g., 2014, 2015)",
+                "end_year": "Please enter the end year (2001-2020) (e.g., 2020, 2019)"
+            })
+        else:
+            base_questions["year"] = "What year would you like to analyze? (2001-2020) (e.g., 2020, 2018)"
+        
+        return base_questions
+
+class TopicModelingStrategy(ParameterExtractionStrategy):
+    """Strategy for topic modeling analysis"""
+    
+    async def extract(self, message: str, existing_params: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract parameters for topic modeling analysis (no location needed)"""
+        extracted = {}
+        message_lower = message.lower()
+        
+        # Extract method
+        extracted.update(await self._extract_method(message_lower))
+        
+        # Extract number of topics
+        extracted.update(await self._extract_n_topics(message_lower))
+        
+        return extracted
+    
+    async def _extract_method(self, message_lower: str) -> Dict[str, Any]:
+        """Extract topic modeling method"""
+        extracted = {}
+        
+        method_patterns = [
+            r'\b(lda|nmf|bertopic)\b',
+            r'method\s*:?\s*(lda|nmf|bertopic)'
+        ]
+        
+        for pattern in method_patterns:
+            match = re.search(pattern, message_lower)
+            if match:
+                extracted['method'] = match.group(1)
+                break
+        
+        return extracted
+    
+    async def _extract_n_topics(self, message_lower: str) -> Dict[str, Any]:
+        """Extract number of topics"""
+        extracted = {}
+        
+        n_topics_patterns = [
+            r'(\d+)\s*(?:topics|topic)',
+            r'n_topics\s*:?\s*(\d+)'
+        ]
+        
+        for pattern in n_topics_patterns:
+            match = re.search(pattern, message_lower)
+            if match:
+                n_topics = int(match.group(1))
+                if 2 <= n_topics <= 20:
+                    extracted['n_topics'] = n_topics
+                    break
+        
+        return extracted
+    
+    def get_required_params(self) -> List[str]:
+        """Get required parameters for topic modeling"""
+        return ["method", "n_topics"]
+    
+    def get_parameter_questions(self) -> Dict[str, str]:
+        """Get parameter questions for topic modeling"""
+        return {
+            "method": "Which method would you like to use? (lda, nmf, bertopic)",
+            "n_topics": "How many topics would you like to analyze? (e.g., 10, 15)"
+        }
+
+class ParameterCollector:
+    """Main parameter collector using strategy pattern"""
+    
+    def __init__(self):
+        # Initialize strategies for each analysis type
+        self.strategies = {
+            "sea_level_rise": LocationBasedStrategy("sea_level_rise"),
+            "urban_analysis": LocationBasedStrategy("urban_analysis"),
+            "infrastructure_analysis": LocationBasedStrategy("infrastructure_analysis"),
+            "topic_modeling": TopicModelingStrategy(),
+        }
+    
+    async def _extract_parameters(self, message: str, analysis_type: str, existing_params: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Extract parameters from user message using appropriate strategy"""
+        if existing_params is None:
+            existing_params = {}
+        
+        # Get the appropriate strategy
+        strategy = self.strategies.get(analysis_type)
+        if not strategy:
+            raise ValueError(f"No strategy found for analysis type: {analysis_type}")
+        
+        # Extract parameters using the strategy
+        extracted = await strategy.extract(message, existing_params)
+        
+        return extracted
+    
     def _validate_parameters(self, params: Dict[str, Any], analysis_type: str) -> Dict[str, Any]:
-        """Validate parameters"""
-        required = self.required_params.get(analysis_type, [])
+        """Validate parameters using strategy's required params"""
+        strategy = self.strategies.get(analysis_type)
+        if not strategy:
+            raise ValueError(f"No strategy found for analysis type: {analysis_type}")
+        
+        required = strategy.get_required_params()
         missing = []
         invalid = []
         
         for param in required:
             if param not in params or params[param] is None:
                 missing.append(param)
-            elif param == "year" and params[param] not in self.valid_years:
+            elif param == "year" and params[param] not in list(range(2000, 2025)):
                 invalid.append(f"year must be between 2000-2024, got {params[param]}")
-            elif param == "start_year" and params[param] not in self.valid_years:
+            elif param == "start_year" and params[param] not in list(range(2000, 2025)):
                 invalid.append(f"start_year must be between 2000-2024, got {params[param]}")
-            elif param == "end_year" and params[param] not in self.valid_years:
+            elif param == "end_year" and params[param] not in list(range(2000, 2025)):
                 invalid.append(f"end_year must be between 2000-2024, got {params[param]}")
-            elif param == "threshold" and not (self.valid_thresholds[0] <= params[param] <= self.valid_thresholds[1]):
-                invalid.append(f"threshold must be between {self.valid_thresholds[0]}-{self.valid_thresholds[1]}, got {params[param]}")
+            elif param == "threshold" and not (0.5 <= params[param] <= 5.0):
+                invalid.append(f"threshold must be between 0.5-5.0, got {params[param]}")
         
-        # For urban_analysis, validate start_year <= end_year
+        # urban_analysis의 경우 start_year <= end_year 검증
         if analysis_type == "urban_analysis" and "start_year" in params and "end_year" in params:
             if params["start_year"] and params["end_year"] and params["start_year"] > params["end_year"]:
                 invalid.append(f"start_year ({params['start_year']}) must be <= end_year ({params['end_year']})")
@@ -263,14 +353,20 @@ class ParameterCollector:
         }
     
     def generate_questions(self, missing_params: List[str], analysis_type: str) -> str:
-        """Generate questions for missing parameters"""
-        if missing_params and analysis_type in self.parameter_questions:
+        """Generate questions for missing parameters using strategy"""
+        strategy = self.strategies.get(analysis_type)
+        if not strategy:
+            return "Additional information is needed."
+        
+        questions = strategy.get_parameter_questions()
+        
+        if missing_params:
             missing_param = missing_params[0]
-            if missing_param in self.parameter_questions[analysis_type]:
-                return self.parameter_questions[analysis_type][missing_param]
+            if missing_param in questions:
+                return questions[missing_param]
         
         # Default questions
-        questions = {
+        default_questions = {
             "year": "What year would you like to analyze? (2001-2020) (e.g., 2020, 2018)",
             "start_year": "Please enter the start year (2001-2020) (e.g., 2014, 2015)",
             "end_year": "Please enter the end year (2001-2020) (e.g., 2020, 2019)",
@@ -282,7 +378,7 @@ class ParameterCollector:
         }
         
         if missing_params:
-            return questions.get(missing_params[0], f"Please provide {missing_params[0]} information.")
+            return default_questions.get(missing_params[0], f"Please provide {missing_params[0]} information.")
         return "Additional information is needed."
 
 # Create global instance
