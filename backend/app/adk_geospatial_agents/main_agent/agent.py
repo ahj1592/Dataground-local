@@ -178,9 +178,9 @@ async def handle_new_request(message: str, user_id: int, user_state: Dict[str, A
             }
         else:
             print(f"🔍 [Main Agent] Showing generic response for existing chat")
-            # Simple response for existing chats
+            # Friendly response for general conversation
             return {
-                "message": "Sorry, I couldn't understand your analysis intent. Please request a specific analysis.",
+                "message": "Hello! How can I help you today? I can assist you with:\n\n• Sea level rise risk analysis\n• Urban area analysis\n• Infrastructure exposure analysis\n• Topic modeling analysis\n\nJust let me know what you'd like to analyze!",
                 "status": "general_chat"
             }
 
@@ -429,6 +429,11 @@ async def execute_analysis(analysis_type: str, params: Dict[str, Any], user_id: 
         "content": response_message,
         "timestamp": "now"
     })
+    
+    # Reset user state after analysis completion to allow new conversations
+    user_state["status"] = "idle"
+    user_state["analysis_type"] = None
+    user_state["collected_params"] = {}
     
     return {
         "message": response_message,
