@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Header, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Body, BackgroundTasks
 from sqlalchemy.orm import Session
 from . import schemas, models, database, utils
 from .adk_chat import send_message, generate_ai_response, get_chat_history
@@ -58,7 +58,13 @@ def get_messages(chat_id: int, current_user: models.User = Depends(get_current_u
     return chat.messages
 
 @router.post('/chats/{chat_id}/messages', response_model=schemas.MessageOut)
-async def send_message_endpoint(chat_id: int, content: str, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def send_message_endpoint(
+    chat_id: int, 
+    content: str, 
+    background_tasks: BackgroundTasks,
+    current_user: models.User = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
     import time
     request_id = f"{int(time.time() * 1000)}_{chat_id}_{content[:10]}"
     print(f"🔍 [ENDPOINT] {request_id} - Starting send_message_endpoint")
@@ -78,69 +84,41 @@ async def send_message_endpoint(chat_id: int, content: str, current_user: models
     db.refresh(user_msg)
     print(f"✅ [ENDPOINT] {request_id} - User message stored with ID: {user_msg.id}")
     
-    # Use ADK chat integration for AI response
+    # Create loading message immediately to show user that processing has started
+    # Use "..." as content to indicate loading state (frontend can check content === "...")
+    loading_msg = models.Message(
+        chat_id=chat_id,
+        sender="assistant",
+        content="..."  # Loading indicator - frontend will recognize this
+    )
+    db.add(loading_msg)
+    db.commit()
+    db.refresh(loading_msg)
+    print(f"✅ [ENDPOINT] {request_id} - Loading message created with ID: {loading_msg.id}")
+    
+    # Return loading message immediately
+    loading_msg_dict = {
+        "id": loading_msg.id,
+        "sender": loading_msg.sender,
+        "content": loading_msg.content,
+        "created_at": loading_msg.created_at.isoformat()
+    }
+    
+    # Process message in background and update the loading message
     print(f"🚀 [ADK] Chat API received message from user {current_user.id}: '{content[:50]}...'")
-    try:
-        print(f"🔍 [ENDPOINT] {request_id} - Calling send_message function")
-        print(f"🔍 [ENDPOINT] {request_id} - About to call send_message with chat_id: {chat_id}")
-        
-        # Process message with ADK agent
-        response = await send_message(
-            message=content,
-            user_id=current_user.id,
-            db=db,
-            chat_id=chat_id
-        )
-        
-        print(f"✅ [ENDPOINT] {request_id} - send_message completed")
-        print(f"🔍 [ENDPOINT] {request_id} - Response received: {response.get('message', 'No message')[:50]}...")
-        
-        print(f"✅ [ADK] Agent response: '{response.get('message', 'No response')[:50]}...'")
-        
-        # Store AI response
-        ai_msg = models.Message(
-            chat_id=chat_id, 
-            sender="assistant", 
-            content=response.get("message", "Sorry, I cannot generate a response.")
-        )
-        db.add(ai_msg)
-        db.commit()
-        db.refresh(ai_msg)
-        
-        # Add dashboard_updates to the response
-        ai_msg_dict = {
-            "id": ai_msg.id,
-            "sender": ai_msg.sender,
-            "content": ai_msg.content,
-            "created_at": ai_msg.created_at.isoformat()
-        }
-        
-        # Include dashboard_updates if present
-        if "dashboard_updates" in response:
-            ai_msg_dict["dashboard_updates"] = response["dashboard_updates"]
-            print(f"🔍 [Chat API] Including dashboard_updates in response: {len(response['dashboard_updates'])} items")
-        
-        print(f"🔍 [Chat API] Final response structure: {list(ai_msg_dict.keys())}")
-        print(f"🔍 [Chat API] Final response dashboard_updates: {ai_msg_dict.get('dashboard_updates', 'NOT_FOUND')}")
-        
-        return ai_msg_dict
-        
-    except Exception as e:
-        print(f"❌ [ADK] Error processing message: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        
-        # Store error message
-        error_msg = models.Message(
-            chat_id=chat_id,
-            sender="assistant", 
-            content=f"Sorry, an error occurred: {str(e)}"
-        )
-        db.add(error_msg)
-        db.commit()
-        db.refresh(error_msg)
-        
-        return error_msg
+    print(f"🔍 [ENDPOINT] {request_id} - Starting background processing")
+    
+    # Start background task to process message and update loading message
+    from app.adk_chat import process_message_in_background_task
+    background_tasks.add_task(
+        process_message_in_background_task,
+        message=content,
+        user_id=current_user.id,
+        chat_id=chat_id,
+        loading_message_id=loading_msg.id
+    )
+    
+    return loading_msg_dict
 
 @router.patch('/chats/{chat_id}/title', response_model=schemas.ChatOut)
 def update_chat_title(chat_id: int, title: str = Body(...), current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):

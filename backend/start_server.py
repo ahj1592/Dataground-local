@@ -5,7 +5,14 @@ Startup script for DataGround backend with environment variable debugging
 
 import os
 import sys
+import warnings
 from pathlib import Path
+
+# Suppress warnings globally before loading any modules
+# 1. RuntimeWarning from duckduckgo_search package rename
+warnings.filterwarnings("ignore", category=RuntimeWarning, message=".*duckduckgo_search.*")
+# 2. UserWarning from Pydantic serializer (OpenAI SDK responses)
+warnings.filterwarnings("ignore", category=UserWarning, message=".*Pydantic.*serializer.*")
 
 def check_environment():
     """Check if environment variables are properly set"""
@@ -30,6 +37,15 @@ def check_environment():
         print(f"   Key starts with: {api_key[:10]}...")
     else:
         print("❌ OPENAI_API_KEY is not set")
+        return False
+    
+    # Check Google API key
+    google_api_key = os.getenv("GOOGLE_API_KEY")
+    if google_api_key:
+        print("✅ GOOGLE_API_KEY is set")
+        print(f"   Key starts with: {google_api_key[:10]}...")
+    else:
+        print("❌ GOOGLE_API_KEY is not set")
         return False
     
     # Check other important variables

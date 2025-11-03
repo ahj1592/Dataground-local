@@ -16,7 +16,7 @@ from google.adk.agents.invocation_context import InvocationContext
 from collections import defaultdict
 
 # Global user state management (should be stored in Redis or DB in practice)
-user_states = defaultdict(lambda: {
+user_states = defaultdict[Any, dict[str, str | dict[Any, Any] | list[Any] | None]](lambda: {
     "status": "idle",
     "analysis_type": None,
     "collected_params": {},
@@ -92,6 +92,117 @@ def create_adk_context(user_id: int, chat_id: int):
                     "chat_id": chat_id
                 }
         return MockCallbackContext(user_id, chat_id)
+
+async def process_message_in_background_task(
+    message: str, 
+    user_id: int, 
+    chat_id: int, 
+    loading_message_id: int
+):
+    """
+    Background task to process message and update loading message with actual response.
+    This function runs in background so the API can return immediately with loading message.
+    """
+    from .database import SessionLocal
+    db = SessionLocal()
+    try:
+        print(f"🔄 [BackgroundTask] Processing message for user {user_id}, chat {chat_id}")
+        print(f"🔄 [BackgroundTask] Will update loading message ID: {loading_message_id}")
+        
+        # Create ADK context
+        callback_context = create_adk_context(user_id, chat_id)
+        
+        # Check if new chat
+        user_message_count = db.query(Message).filter(
+            Message.chat_id == chat_id,
+            Message.sender == "user",
+            Message.content != message
+        ).count()
+        is_new_chat = user_message_count == 0
+        callback_context.state["is_new_chat"] = is_new_chat
+        
+        # Load chat history from DB to maintain conversation context within this chat_id
+        chat_messages = db.query(Message).filter(
+            Message.chat_id == chat_id,
+            Message.content != "...",  # Exclude loading messages
+            Message.content != message  # Exclude current message
+        ).order_by(Message.created_at).all()
+        
+        # Load conversation context from DB messages
+        conversation_context = []
+        for msg in chat_messages:
+            if msg.content and msg.content != "...":
+                conversation_context.append({
+                    "role": msg.sender,  # 'user' or 'assistant'
+                    "content": msg.content,
+                    "timestamp": msg.created_at.isoformat() if hasattr(msg.created_at, 'isoformat') else str(msg.created_at)
+                })
+        
+        # Store conversation context in callback context for agent to use
+        state_key = f"{user_id}_{chat_id}"
+        if state_key not in callback_context.state["user_states"]:
+            callback_context.state["user_states"][state_key] = {
+                "status": "idle",
+                "analysis_type": None,
+                "collected_params": {},
+                "conversation_context": []
+            }
+        
+        # Initialize conversation_context from DB history if new chat or if empty
+        if is_new_chat or not callback_context.state["user_states"][state_key].get("conversation_context"):
+            callback_context.state["user_states"][state_key]["conversation_context"] = conversation_context
+            print(f"📚 [BackgroundTask] Loaded {len(conversation_context)} messages from chat history")
+        else:
+            # Merge: use existing context (may have in-memory state) but ensure DB messages are included
+            existing_context = callback_context.state["user_states"][state_key]["conversation_context"]
+            # Only add messages that aren't already in context
+            existing_contents = {ctx.get("content") for ctx in existing_context if ctx.get("content")}
+            for msg_context in conversation_context:
+                if msg_context.get("content") not in existing_contents:
+                    existing_context.append(msg_context)
+            print(f"📚 [BackgroundTask] Merged chat history, total context: {len(existing_context)} messages")
+        
+        # Process message with ADK agent
+        response = await process_user_message(message, user_id, callback_context)
+        
+        # Get actual response content
+        response_content = response.get("message", "Sorry, I cannot generate a response.")
+        dashboard_updates = response.get("dashboard_updates", [])
+        
+        print(f"✅ [BackgroundTask] Response generated, updating message ID {loading_message_id}")
+        
+        # Update the loading message with actual response
+        loading_msg = db.query(Message).filter(Message.id == loading_message_id).first()
+        if loading_msg:
+            loading_msg.content = response_content
+            db.commit()
+            print(f"✅ [BackgroundTask] Message updated successfully")
+        else:
+            print(f"⚠️ [BackgroundTask] Loading message {loading_message_id} not found, creating new message")
+            # Create new message if loading message was deleted
+            new_msg = Message(
+                chat_id=chat_id,
+                sender="assistant",
+                content=response_content
+            )
+            db.add(new_msg)
+            db.commit()
+            
+    except Exception as e:
+        print(f"❌ [BackgroundTask] Error processing message: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        # Update loading message with error
+        try:
+            loading_msg = db.query(Message).filter(Message.id == loading_message_id).first()
+            if loading_msg:
+                loading_msg.content = f"Sorry, an error occurred: {str(e)}"
+                db.commit()
+        except Exception as update_error:
+            print(f"❌ [BackgroundTask] Failed to update error message: {str(update_error)}")
+    finally:
+        db.close()
 
 async def send_message(message: str, user_id: int, db: Session, chat_id: int = None) -> Dict[str, Any]:
     """Process messages using ADK agents"""

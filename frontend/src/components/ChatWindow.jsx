@@ -2,6 +2,8 @@ import React, { useRef, useEffect, useState } from 'react';
 import { Box, Typography, TextField, IconButton, Paper, InputAdornment, Tooltip, Chip } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
+import ReactMarkdown from 'react-markdown';
+import StreamingText from './StreamingText';
 
 function ChatWindow({ messages, onSend, loading }) {
   const [input, setInput] = useState('');
@@ -61,18 +63,87 @@ function ChatWindow({ messages, onSend, loading }) {
   return (
     <Box display="flex" flexDirection="column" height="100%" bgcolor="#fff">
       <Box flex={1} p={2} overflow="auto">
-        {messages.map((msg, idx) => (
-          <Box key={msg.id || idx} display="flex" justifyContent={msg.sender === 'user' ? 'flex-end' : 'flex-start'} mb={1}>
-            <Paper sx={{
-              bgcolor: msg.sender === 'user' ? '#e3f2fd' : '#f5f5f5',
-              color: '#111',
-              px: 2, py: 1, maxWidth: '70%',
-              wordBreak: 'break-word',
-            }}>
-              <Typography variant="body1" sx={{ whiteSpace: 'pre-line' }}>{msg.content}</Typography>
-            </Paper>
-          </Box>
-        ))}
+        {messages.map((msg, idx) => {
+          const isLoading = msg.content === "...";
+          const isAssistant = msg.sender === 'assistant' || msg.sender === 'ai';
+          const isLatestAssistant = isAssistant && idx === messages.length - 1 && !isLoading;
+          
+          return (
+            <Box key={msg.id || idx} display="flex" justifyContent={msg.sender === 'user' ? 'flex-end' : 'flex-start'} mb={1}>
+              <Paper sx={{
+                bgcolor: msg.sender === 'user' ? '#e3f2fd' : '#f5f5f5',
+                color: '#111',
+                px: 2, py: 1, maxWidth: '70%',
+                wordBreak: 'break-word',
+              }}>
+                {isLoading ? (
+                  <Box display="flex" alignItems="center" gap={0.5}>
+                    <Typography variant="body1" sx={{ 
+                      animation: 'pulse 1.5s ease-in-out infinite',
+                      '@keyframes pulse': {
+                        '0%, 100%': { opacity: 0.5 },
+                        '50%': { opacity: 1 },
+                      }
+                    }}>
+                      ...
+                    </Typography>
+                  </Box>
+                ) : isLatestAssistant ? (
+                  // Show streaming effect for the latest assistant message
+                  <StreamingText 
+                    text={msg.content} 
+                    speed={2.5}
+                    startImmediately={true}
+                    messageId={msg.id}
+                  />
+                ) : (
+                  // Show full text for older messages with markdown rendering
+                  <Box sx={{ 
+                    '& p': { margin: 0, marginBottom: '0.5em' },
+                    '& p:last-child': { marginBottom: 0 },
+                    '& h1, & h2, & h3, & h4, & h5, & h6': { marginTop: '0.5em', marginBottom: '0.5em' },
+                    '& h1:first-child, & h2:first-child, & h3:first-child': { marginTop: 0 },
+                    '& ul, & ol': { marginTop: '0.5em', marginBottom: '0.5em', paddingLeft: '1.5em' },
+                    '& code': { 
+                      backgroundColor: 'rgba(0, 0, 0, 0.05)', 
+                      padding: '0.2em 0.4em', 
+                      borderRadius: '3px',
+                      fontSize: '0.9em'
+                    },
+                    '& pre': {
+                      backgroundColor: 'rgba(0, 0, 0, 0.05)',
+                      padding: '0.5em',
+                      borderRadius: '4px',
+                      overflow: 'auto',
+                      marginTop: '0.5em',
+                      marginBottom: '0.5em'
+                    },
+                    '& pre code': {
+                      backgroundColor: 'transparent',
+                      padding: 0
+                    },
+                    '& blockquote': {
+                      borderLeft: '3px solid #ddd',
+                      paddingLeft: '1em',
+                      marginLeft: 0,
+                      color: '#666',
+                      fontStyle: 'italic'
+                    },
+                    '& a': {
+                      color: '#1976d2',
+                      textDecoration: 'none'
+                    },
+                    '& a:hover': {
+                      textDecoration: 'underline'
+                    }
+                  }}>
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  </Box>
+                )}
+              </Paper>
+            </Box>
+          );
+        })}
         <div ref={messagesEndRef} />
       </Box>
       <Box component="form" onSubmit={handleSend} display="flex" alignItems="center" p={2} borderTop="1px solid #eee" bgcolor="#fafafa">

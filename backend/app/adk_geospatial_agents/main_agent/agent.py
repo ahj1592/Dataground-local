@@ -25,6 +25,8 @@ from .tools import (
 from ..shared.utils.parameter_collector import parameter_collector
 from ..shared.utils.bbox_utils import calculate_bbox, get_standard_buffer
 from ..shared.utils.command_system import command_parser, command_executor
+from ..data_consultant_agent.agent import data_consultant_agent
+from ..data_consultant_agent.tools import detect_data_analysis_question
 
 date_today = date.today()
 
@@ -49,7 +51,11 @@ async def process_user_message(message: str, user_id: int, callback_context: Cal
     setup_before_agent_call(callback_context)
     
     user_states = callback_context.state["user_states"]
-    user_state = user_states[user_id]
+    chat_id = callback_context.state.get("chat_id")
+    
+    # Use chat_id-specific state key to separate conversations by chat
+    state_key = f"{user_id}_{chat_id}" if chat_id else str(user_id)
+    user_state = user_states[state_key]
     
     print(f"🚀 [Main Agent] Processing message from user {user_id}: '{message[:50]}...'")
     
@@ -70,6 +76,18 @@ async def process_user_message(message: str, user_id: int, callback_context: Cal
         })
         
         return result
+    
+    # 2. Check for data analysis questions (second priority)
+    try:
+        detection_result = await detect_data_analysis_question(message, callback_context)
+        print(f"🔍 [Main Agent] Data analysis detection result: {detection_result}")
+        if detection_result and detection_result.get("is_data_analysis_question", False) and detection_result.get("confidence", 0) >= 0.3:
+            print(f"📊 [Main Agent] Data analysis question detected: {detection_result.get('confidence', 0):.2f}")
+            return await handle_data_analysis_question(message, user_id, user_state, callback_context)
+    except Exception as e:
+        print(f"❌ [Main Agent] Data analysis detection error: {str(e)}")
+        import traceback
+        traceback.print_exc()
     
     # Check if new chat and initialize state
     is_new_chat = callback_context.state.get("is_new_chat", False)
@@ -189,17 +207,21 @@ async def handle_new_request(message: str, user_id: int, user_state: Dict[str, A
         is_new_chat = callback_context.state.get("is_new_chat", False)
         print(f"🔍 [Main Agent] is_new_chat: {is_new_chat}")
         
+        # Common supported analyses list
+        supported_analyses = "Supported analyses:\n- Sea level rise risk analysis\n- Urban area analysis\n- Infrastructure exposure analysis\n- Topic modeling analysis\n- Other Data Analysis Advice"
+        
         if is_new_chat:
             print(f"🔍 [Main Agent] Showing welcome message for new chat")
+            welcome_message = f"Hello! I'm the DataGround geospatial analysis system. How can I help you with your analysis?\n\n{supported_analyses}"
             return {
-                "message": "Hello! I'm the DataGround geospatial analysis system. How can I help you with your analysis?\n\nSupported analyses:\n- Sea level rise risk analysis\n- Urban area analysis\n- Infrastructure exposure analysis\n- Topic modeling analysis",
+                "message": welcome_message,
                 "status": "general_chat"
             }
         else:
             print(f"🔍 [Main Agent] Showing generic response for existing chat")
-            # Friendly response for general conversation
+            main_message = f"Sorry, I couldn't understand your request. How can I help you today? I can assist you with:\n\n{supported_analyses}"
             return {
-                "message": "Hello! How can I help you today? I can assist you with:\n\n• Sea level rise risk analysis\n• Urban area analysis\n• Infrastructure exposure analysis\n• Topic modeling analysis\n\nJust let me know what you'd like to analyze!",
+                "message": main_message,
                 "status": "general_chat"
             }
 
@@ -728,4 +750,73 @@ async def call_topic_modeling_api(params: Dict[str, Any]) -> Dict[str, Any]:
             "success": False,
             "error": str(e),
             "dashboard_updates": []
+        }
+
+async def handle_data_analysis_question(message: str, user_id: int, user_state: Dict[str, Any], callback_context: CallbackContext) -> Dict[str, Any]:
+    """Handle data analysis questions using DataConsultantAgent"""
+    print(f"📊 [Main Agent] Handling data analysis question: '{message[:50]}...'")
+    
+    try:
+        # Build conversation context from chat history
+        conversation_history = user_state.get("conversation_context", [])
+        
+        # Create context string from conversation history
+        context_text = ""
+        if conversation_history:
+            context_parts = []
+            for ctx in conversation_history[-10:]:  # Last 10 messages for context
+                role = ctx.get("role", "")
+                content = ctx.get("content", "")
+                if content and content != "..." and role in ["user", "assistant"]:
+                    role_label = "User" if role == "user" else "Assistant"
+                    context_parts.append(f"{role_label}: {content}")
+            
+            if context_parts:
+                context_text = "\n\nPrevious conversation:\n" + "\n".join(context_parts)
+                print(f"📚 [Main Agent] Including {len(context_parts)} previous messages in context")
+        
+        # Build request with conversation context
+        request_with_context = message
+        if context_text:
+            request_with_context = f"{context_text}\n\nCurrent question: {message}"
+        
+        # Call DataConsultantAgent
+        from google.adk.tools import AgentTool
+        agent_tool = AgentTool(agent=data_consultant_agent)
+        
+        result = await agent_tool.run_async(
+            args={"request": request_with_context},
+            tool_context=callback_context
+        )
+        
+        # Handle both string and dict responses
+        if isinstance(result, str):
+            response_content = result
+        else:
+            response_content = result.get("content", "") if result else ""
+        
+        # Add AI response to conversation context
+        if "conversation_context" not in user_state:
+            user_state["conversation_context"] = []
+        
+        user_state["conversation_context"].append({
+            "role": "assistant",
+            "content": response_content,
+            "timestamp": "now"
+        })
+        
+        return {
+            "message": response_content or "I'm here to help with your data analysis questions!",
+            "status": "data_analysis_response",
+            "analysis_type": "data_consultation"
+        }
+        
+    except Exception as e:
+        print(f"❌ [Main Agent] DataConsultantAgent error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        return {
+            "message": "I apologize, but I encountered an error while processing your data analysis question. Please try again.",
+            "status": "error"
         }

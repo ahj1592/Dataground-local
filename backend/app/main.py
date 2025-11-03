@@ -1,7 +1,24 @@
 from dotenv import load_dotenv
 import os
+import warnings
+import logging
 
-# Load environment variables first
+# Suppress warnings globally BEFORE loading any other modules
+# This must be done first to catch all warnings
+warnings.filterwarnings("ignore")
+warnings.filterwarnings("default", category=DeprecationWarning)  # Keep deprecation warnings visible
+
+# More specific filters
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*duckduckgo_search.*")
+warnings.filterwarnings("ignore", message=".*Pydantic.*")
+warnings.filterwarnings("ignore", message=".*serializer.*")
+
+# Also suppress warnings in logging
+logging.captureWarnings(True)
+
+# Load environment variables
 load_dotenv()
 
 from fastapi import FastAPI
